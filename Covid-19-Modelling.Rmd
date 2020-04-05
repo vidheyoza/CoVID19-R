@@ -1,0 +1,118 @@
+---
+title: "Covid-19 Analysis and Prediction"
+author: "Arushi Sharma"
+date: "3/14/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE}
+#Importing all required libraries
+
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(arsenal)
+library(caret)
+
+```
+
+
+```{r}
+#Importing dataset 
+
+covid19 <- readr :: read_csv("novel-corona-virus-2019-dataset/covid_19_data.csv")
+head(covid19, 10)
+tail(covid19, 10)
+```
+
+```{r}
+#summary of the data
+summary(covid19)
+```
+
+
+**Modelling : **
+
+```{r}
+
+covid <- readr::read_csv("novel-corona-virus-2019-dataset/COVID19_line_list_data.csv")
+head(covid, 10)
+dim(covid)
+  
+```
+
+
+```{r}
+#Creating 2 additional columns after detecting symptoms
+
+covid$respiratory <- str_detect(covid$symptom, 'breath|pneumonia|breathlessness|dyspnea|respiratory')
+covid$abdominal <- str_detect(covid$symptom, 'abdominal|diarrhea|vomiting')
+```
+
+
+```{r}
+#Selecting required columns
+covid <- covid %>% 
+  select(`reporting date`, country, gender, age, death, respiratory, abdominal, symptom)  %>%
+  mutate(
+    death = ifelse(death == '0', 0, 1),
+    country = factor(country),
+    gender = factor(gender),
+    death = factor(death, label = c('no','yes')),
+    reporting.date = as.Date(`reporting date`, format = c('$d/$m/$Y')),
+    respiratory = factor(respiratory, label = c('no','yes')),
+    abdominal = factor(abdominal, label = c('no','yes'))
+  )
+
+```
+
+
+
+```{r}
+#Predicting death with the help of age and gender
+
+fit1 <- glm(death ~ age + gender, family=binomial(link="logit"), data=covid)
+summary(fit1)
+fit1
+
+```
+
+
+```{r}
+# Adding prediction column response for 
+
+covid_pred <- covid %>%
+  add_predictions(fit1, type="response")
+covid_pred
+
+summary(covid_pred)
+
+```
+
+```{r}
+covid_pred <- covid_pred %>%
+  mutate(pred_status =ifelse(pred > 0.1, "yes", "no")) %>%
+  mutate(pred_status = factor(pred_status, label = c("no","yes"))) 
+
+covid_pred
+
+```
+
+
+```{r}
+confusionMatrix(covid_pred$pred_status, covid_pred$death)
+```
+
+```{r}
+
+
+covid_accuracy <- covid_pred %>% summarize(acc4 = mean(death==pred_status, na.rm=TRUE))
+covid_accuracy
+
+```
+
+
