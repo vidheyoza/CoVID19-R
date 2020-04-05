@@ -1,0 +1,246 @@
+---
+title: "Covid-19 Analysis and Prediction"
+author: "Arushi Sharma"
+date: "3/14/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE}
+#Importing all required libraries
+
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(arsenal)
+library(caret)
+library(wordcloud)
+```
+
+
+```{r}
+#Importing dataset 
+
+covid19 <- readr :: read_csv("novel-corona-virus-2019-dataset/covid_19_data.csv")
+head(covid19, 10)
+tail(covid19, 10)
+```
+
+```{r}
+#summary of the data
+summary(covid19)
+```
+
+
+```{r}
+#Finding deaths by country
+
+covid19 %>% distinct(`Country/Region`) %>% count()
+#%>% filter(Deaths > 0) %>% count(Deaths)
+
+```
+
+```{r Most_affected_countries,warning=FALSE}
+
+tot <- covid19 %>%
+  filter(ObservationDate == "03/26/2020") %>%
+  group_by(`Country/Region`) %>%
+  summarise(sm= sum(Confirmed)) %>%
+  summarise(sm= sum(sm)) 
+
+filtered <- covid19 %>% filter(ObservationDate == "03/26/2020") %>% 
+  group_by(`Country/Region`) %>% 
+  summarise(n=sum(Confirmed)) %>% 
+  arrange((n)) %>%
+  tail(5)
+
+  ggplot(filtered) + aes(x=reorder(`Country/Region`,-n),n) + 
+    geom_col() +
+    geom_col(stat = "identity",fill = "darkolivegreen") +  
+    labs(title = "          Reported cases in worst affected countries    ") +
+    xlab("Country") +
+    ylab("Number of reported cases ")  +
+    geom_text(aes(label=n), vjust=.001, color = "black")
+```
+
+
+```{r}
+(covid19 %>% filter(ObservationDate == "03/26/2020") %>% 
+   filter(`Country/Region` == "US") %>% summarise(sum(Confirmed)) )/tot
+```
+
+
+```{r message=FALSE}
+covid19 %>% filter(`Country/Region` == "US") %>%
+  filter(ObservationDate == "03/26/2020") %>%
+  group_by(`Province/State`) %>% 
+  summarise(n=sum(Confirmed)) %>% 
+  arrange((n)) %>% tail(5) %>% 
+  ggplot() + aes(x=reorder(`Province/State`,-n),n) + 
+  geom_col() +geom_col(stat = "identity",fill = "darkolivegreen") +  
+  labs(title = "          Reported cases in worst affected Province/State of US    ") +
+  xlab("Province/State of US ") +ylab("Number of reported cases ")  +
+  geom_text(aes(label=n), vjust=.001, color = "black")
+```
+
+
+
+```{r}
+covid_cases <- covid19 %>% filter(ObservationDate == "03/26/2020") %>% 
+  group_by(`Country/Region`) %>% 
+  summarise(confirmed_cases=sum(Confirmed),Casualities=sum(Deaths),Recovered_cases=sum(Recovered)) %>%
+  arrange(desc(confirmed_cases)) %>% head(5)
+covid_cases
+
+#calculating the recovery rate
+
+covid_cases <- covid_cases %>% mutate(recovered_ratio = Recovered_cases/confirmed_cases)
+covid_cases
+
+covid_mean <- covid19 %>% filter(ObservationDate == "03/26/2020") %>% 
+  summarise(confirmed_cases=sum(Confirmed),Casuality=sum(Deaths),Recovered_cases=sum(Recovered)) %>%
+  arrange(desc(confirmed_cases))
+covid_mean
+```
+
+
+
+```{r}
+covid19 %>% group_by(ObservationDate) %>% 
+  summarise(datewise = sum(Confirmed)) %>% 
+  ggplot(aes(x=ObservationDate, y=datewise, group=1)) +
+  geom_line(col="darkolivegreen") + theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(title = "          Plot of Total Reported cases for the month of January-March 2020   ") +
+  xlab("Observed Date ") +ylab("Number of reported cases ")  
+
+```
+
+
+```{r}
+covid19 %>% filter(grepl('^01/', ObservationDate)) %>% group_by(ObservationDate) %>% 
+  summarise(datewise = sum(Confirmed)) %>% 
+  ggplot(aes(x=ObservationDate, y=datewise, group=1)) +
+  geom_line(col = "black") +labs(title="Reported cases in the month of January",x="Date", y = "Number of cases") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) 
+```
+
+
+
+
+```{r}
+covid19 %>% filter(grepl('^02/', ObservationDate)) %>% group_by(ObservationDate) %>% 
+  summarise(datewise = sum(Confirmed)) %>% 
+  ggplot(aes(x=ObservationDate, y=datewise, group=1)) +
+  geom_line(col = "black") +labs(title="Reported cases in the month of February",x="Date", y = "Number of cases") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) 
+```
+
+
+
+
+```{r}
+covid19 %>% filter(grepl('^03/', ObservationDate)) %>% group_by(ObservationDate) %>% 
+  summarise(datewise = sum(Confirmed)) %>% 
+  ggplot(aes(x=ObservationDate, y=datewise, group=1)) +
+  geom_line(col = "black") +labs(title="Reported cases in the month of March",x="Date", y = "Number of cases") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) 
+```
+
+```{r}
+covid_cloud <- covid19 %>% 
+  filter(ObservationDate == "03/26/2020" )
+
+wordcloud(covid_cloud$`Province/State`,covid_cloud$Confirmed,random.order = FALSE,rot.per = .3,
+          scale = c(5,.8),max.words = 100,colors = brewer.pal(7,"Set1"))
+```
+
+```{r}
+ covid_cloud %>% filter(ObservationDate == "03/26/2020") %>% 
+  group_by(`Country/Region`) %>% 
+  summarise(confirmed_cases=sum(Confirmed),Casulty=sum(Deaths),Recovered_cases=sum(Recovered)) %>%
+  arrange(desc(confirmed_cases)) %>% head(5)
+```
+
+
+```{r}
+ggplot(covid, aes(death, age, fill = death))+
+  geom_boxplot()+
+  theme_classic()+
+  scale_fill_manual(values = c('blue','red'))
+
+```
+
+
+
+```{r}
+ggplot(covid, aes(death, fill = gender))+
+  geom_bar(position ='fill')+
+  theme_classic()+
+  scale_fill_manual(values = c('red','blue','black'))
+
+```
+
+
+
+
+
+```{r}
+
+fit1 <- glm(death ~ age + gender, family=binomial(link="logit"), data=covid)
+summary(fit1)
+fit1
+
+```
+
+
+```{r}
+c1 <- covid %>%  add_predictions(fit1, type="response")
+c1 %>% filter(death=="yes") %>% summarise(mean(pred),na.rm = TRUE)
+summary(c1)
+
+c1 %>% filter(death=="no" & pred_status=="no")
+```
+
+
+```{r}
+predict(fit1, covid, type="response") %>% head()
+```
+
+```{r}
+c1 <- c1 %>%
+  add_predictions(fit1, type="response") %>%
+  mutate(pred_status =ifelse(pred > 0.1, "yes", "no"))
+         #correct = death == pred_status ) 
+#select(death, pred_status, correct)
+
+c1 <- c1 %>% 
+  mutate(
+    pred_status = factor(pred_status, label = c("no","yes"))
+  )
+
+
+confusionMatrix(c1$pred_status, c1$death)
+```
+
+
+```{r}
+cf %>% filter(death=="yes")
+```
+
+
+```{r}
+c2<-covid %>%
+  add_predictions(fit1, type="response") %>%
+  mutate(pred4 = ifelse(pred > 0.5, "yes", "no"),
+         pred5 =ifelse(pred > 0.6, "yes", "no"),
+         pred6 =ifelse(pred > 0.7, "yes", "no")) %>%
+  summarize(acc4 = mean(death==pred4, na.rm=TRUE),
+            acc5 = mean(death==pred5, na.rm=TRUE),
+            acc6 =mean(death==pred6, na.rm=TRUE))
+
+c2
+```
+
