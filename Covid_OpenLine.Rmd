@@ -1,0 +1,381 @@
+---
+title: "EDA_openList"
+author: "Arushi Sharma"
+date: "4/10/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r message = FALSE}
+#Importing all required libraries
+
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(chron)
+library(lubridate)
+library(caTools)
+library(caret)
+library(rsample)
+library(ROCR)
+library(e1071)
+```
+
+
+```{r}
+open_line <-  readr::read_csv("latestdata_10Apr.csv")
+open_line
+```
+
+```{r}
+sum(is.na(open_line$age))
+```
+
+
+```{r message=FALSE}
+# Filtering and cleaning data
+covid19 <- open_line %>% select(age, sex, country, date_confirmation, symptoms,
+                                outcome, travel_history_binary)
+
+summary(covid19)
+
+# Converting age to integer values
+covid19$age <- as.integer(covid19$age)
+
+# Converting age into groups
+recode_age <- function(x) {
+  y <- character(length(x))
+  y[x < 10] <- "0_10"
+  y[x >= 10] <- "10_20" 
+  y[x >= 20] <- "20_30" 
+  y[x >= 30] <- "30_40"
+  y[x >= 40] <- "40_50" 
+  y[x >= 50] <- "50_60" 
+  y[x >= 60] <- "60_70" 
+  y[x >= 70] <- "70_80" 
+  y[x >= 80] <- "80_100"
+  y
+}
+covid19 <- covid19 %>% mutate(age_group = recode_age(age))
+covid19 <- mutate(covid19, age_group = factor(age_group,level =c("0_10","11_20","20_30", "30_40","40_50","50_60", "60_70","70_80", "80_100")))
+
+
+#converting symptoms into categorical variable
+covid19$has_covid_symptoms<- str_detect(tolower(covid19$symptoms), 'fever|cough|breath|breathing|throat|pneumonia|respiratory|heart|chest|lung|weak|tired|tiring|fatigue|chill')
+
+#Creating a new column for death
+covid19$death <- str_detect(tolower(covid19$outcome), 'death|died|dead|deceased')
+
+#Changing sex column to lowercase
+covid19$sex <- tolower(covid19$sex)
+
+#Changing country column to lowercase
+covid19$country <- tolower(covid19$country)
+
+
+#Formatting the date 
+covid19$confirmation_date <- (as.Date(covid19$date_confirmation, "%d.%m.%Y"))
+
+#Creating a new column as no of days for each patient by country
+covid19$minimum_date <- covid19$confirmation_date
+unique_countries <- unique(covid19$country) 
+
+for (ucountry in unique_countries){
+  new_date <- covid19 %>% filter(covid19$country == ucountry) %>%
+    summarise(min(confirmation_date, na.rm = TRUE))
+    earliest_date <- do.call("c", new_date)
+    index <- covid19$country == ucountry
+    covid19$minimum_date[index] <- earliest_date
+}
+
+covid19$days_to_firstoccurence <- as.numeric(as.Date(as.character(covid19$confirmation_date), format="%Y-%m-%d")-
+                  as.Date(as.character(covid19$minimum_date), format="%Y-%m-%d"))
+
+
+```
+
+
+```{r message=FALSE}
+
+covid <- covid19 %>% select(age, sex, country, travel_history_binary, age_group, has_covid_symptoms,
+                            death, confirmation_date, minimum_date, days_to_firstoccurence)
+
+colnames(covid)
+summary(covid)
+```
+
+
+
+```{r}
+# Age vs Death rate
+
+age_death <- covid %>% select(age_group, death)
+clean_age_death <- na.omit(age_death)
+clean_age_death
+
+ggplot(clean_age_death, mapping = aes(x = age_group, fill= as.factor(death))) +
+geom_bar(position = "dodge") +
+geom_text(stat='count', aes(label=..count..), position = position_dodge(0.8), vjust=-0.5)+
+            xlab("Age Group ") +
+            ylab("Frequency of Cases") +
+            ggtitle("Most affected Age groups by Corona")
+
+```
+
+
+```{r}
+#Most affected gender by corona
+
+gender_death <- covid %>% select(sex, death)
+clean_gender_death <- na.omit(gender_death)
+clean_gender_death
+
+ggplot(clean_gender_death, mapping = aes(x = sex, fill= as.factor(death))) +
+geom_bar(position = "dodge") +
+geom_text(stat='count', aes(label=..count..), position = position_dodge(0.8), vjust=-0.5)+
+            xlab("Gender ") +
+            ylab("Frequency of Cases") +
+            ggtitle("Most affected gender by Corona")
+
+```
+
+
+```{r}
+#Most affected gender by corona
+
+symptoms_death <- covid %>% select(clear_symptoms, death)
+clean_symptom_death <- na.omit(symptoms_death)
+clean_symptom_death
+
+ggplot(clean_symptom_death, mapping = aes(x = symptoms_death, fill= as.factor(death))) +
+geom_bar(position = "dodge") +
+geom_text(stat='count', aes(label=..count..), position = position_dodge(0.8), vjust=-0.5)+
+            xlab("Gender ") +
+            ylab("Frequency of Cases") +
+            ggtitle("Most affected gender by Corona")
+
+```
+
+
+
+```{r}
+
+covid_model <- covid %>% select(age, sex, country, travel_history_binary, has_covid_symptoms,
+                            death, days_to_firstoccurence)
+
+summary(covid_model)
+sum(!apply(covid_model, 1, anyNA))
+
+```
+
+
+```{r}
+
+#Handling NA values of columns
+
+#changing all NAs of travel_history_binary to FALSE
+covid_model$travel_history_binary[is.na(covid_model$travel_history_binary)] <- FALSE
+covid_model$death[is.na(covid_model$death)] <- FALSE
+covid_model$has_covid_symptoms[is.na(covid_model$has_covid_symptoms)] <- FALSE
+covid_model$country[is.na(covid_model$country)] <- 'other'
+
+summary(covid_model)
+sum(!apply(covid_model, 1, anyNA))
+
+covid_model <- na.omit(covid_model)
+
+```
+
+
+```{r}
+covid_model <- covid_model %>%
+mutate(
+    sex = factor(sex),
+    country = factor(country),
+    has_covid_symptoms = factor(has_covid_symptoms, label = c(0, 1)),
+    death = factor(death, label = c(0, 1)),
+    travel_history_binary = factor(travel_history_binary, label = c(0, 1)),
+    )
+
+summary(covid_model)
+
+```
+
+```{r}
+#Corelation matrix
+
+cor(covid_model)
+```
+
+
+```{r}
+# Create Training Data
+
+set.seed(100)  # for repeatability of samples
+
+input_ones <- covid_model[which(covid_model$death == 1), ]  # all 1's
+input_zeros <- covid_model[which(covid_model$death == 0), ]  # all 0's
+
+input_ones_training_rows <- sample(1:nrow(input_ones), 0.7*nrow(input_ones))  # 1's for training
+input_zeros_training_rows <- sample(1:nrow(input_zeros), 0.7*nrow(input_zeros))  # 0's for training. Pick as many 0's as 1's
+
+training_ones <- input_ones[input_ones_training_rows, ]  
+training_zeros <- input_zeros[input_zeros_training_rows, ]
+trainingData <- rbind(training_ones, training_zeros)  # row bind the 1's and 0's 
+
+# Create Test Data
+test_ones <- input_ones[-input_ones_training_rows, ]
+test_zeros <- input_zeros[-input_zeros_training_rows, ]
+testData <- rbind(test_ones, test_zeros)  # row bind the 1's and 0's 
+
+summary(trainingData)
+summary(testData)
+```
+
+
+```{r}
+logitMod <- glm(death ~ age+sex+travel_history_binary+has_covid_symptoms+days_to_firstoccurence,
+                data=trainingData, family=binomial(link="logit"))
+
+summary(logitMod)
+logitMod
+```
+
+
+```{r}
+predicted_train <- predict(logitMod, trainingData, type="response")  # predicted scores
+head(predicted_train, 5)
+
+predicted_test <- predict(logitMod, testData, type="response")
+head(predicted_test, 5)
+
+predicted_testData <- testData %>% mutate(pred = predicted_test)
+predicted_trainData <- trainingData %>% mutate(pred = predicted_train)
+
+#predicted_testData$majority <- 0.0
+#predicted_trainData$majority <- 0.0
+
+summary(predicted_trainData)
+
+```
+
+
+```{r message=FALSE}
+
+
+predict_fatality <- function(predictions, cutoff, baseline=FALSE){
+  if(baseline == FALSE){
+    covid_pred <- predictions %>%
+    mutate(pred_status =ifelse(pred > cutoff, 1, 0)) %>%
+    mutate(pred_status = factor(pred_status, label = c(0, 1))) 
+  }
+  else{
+    covid_pred <- predictions %>%
+    mutate(pred_status =ifelse(majority > cutoff, 1, 0)) %>%
+    mutate(pred_status = factor(pred_status, label = c(0))) 
+  } 
+  
+    con_matrix <- confusionMatrix(covid_pred$pred_status, covid_pred$death)
+    acc <- con_matrix$overall['Accuracy']
+    specificity <- con_matrix$byClass["Specificity"]
+    sensitivity <- con_matrix$byClass["Sensitivity"]
+    c(acc, specificity, sensitivity)
+}
+
+cutoff = seq(0.1, 0.8, 0.1)
+train_predicts <- data.frame(Accuracy=double, Specificity=double, Sensitivity=double, stringsAsFactors = FALSE)
+test_predicts <- data.frame(Accuracy=double, Specificity=double, Sensitivity=double, stringsAsFactors = FALSE)
+
+
+#print(train_predicts)
+#print(test_predicts)
+for (i in cutoff){
+  #print(i)
+  #print("train")
+  train_predict_row <- predict_fatality(predicted_trainData, i)
+  train_predicts <- rbind(train_predicts, train_predict_row)
+
+  test_predict_row <- predict_fatality(predicted_testData, i)
+  test_predicts <- rbind(test_predicts, test_predict_row)
+}
+
+#baseline_train <- predict_fatality(predicted_trainData, 0.5, TRUE)
+#baseline_test <- predict_fatality(predicted_testData, 0.5, TRUE)
+
+
+names(train_predicts) <- c("Accuracy", "Specificity", "Sensitivity")
+names(test_predicts) <- c("Accuracy", "Specificity", "Sensitivity")
+names(baseline_train) <- c("Accuracy", "Specificity", "Sensitivity")
+
+plot(cutoff, train_predicts$Accuracy, type='n', ylim=c(min(train_predicts)-0.005,max(train_predicts))) #dummy
+lines(cutoff, train_predicts$Accuracy, col="black")
+lines(cutoff, train_predicts$Specificity, col="blue")
+lines(cutoff, train_predicts$Sensitivity, col="red")
+#lines(cutoff, rep(baseline_train[["Accuracy"]], 9), col="black", lty=4 )
+#lines(cutoff, rep(baseline_train[["Specificity"]], 9), col="blue", lty=4)
+#lines(cutoff, rep(baseline_train[["Sensitivity"]], 9), col="red", lty=4)
+
+legend("bottomright", legend=c("Accuracy", "Specificity","Sensitivity"),
+       col=c("black", "blue", "red"), lty=1, cex=0.8,
+       box.lty=2, box.lwd=2, box.col="grey")
+
+
+plot(cutoff, test_predicts$Accuracy, type='n', ylim=c(min(test_predicts)-0.005, max(test_predicts))) #dummy
+lines(cutoff, test_predicts$Accuracy, col="black")
+lines(cutoff, test_predicts$Specificity, col="blue")
+lines(cutoff, test_predicts$Sensitivity, col="red")
+#lines(cutoff, rep(baseline_test[["Accuracy"]], 9), col="black", lty=4 )
+#lines(cutoff, rep(baseline_test[["Specificity"]], 9), col="blue", lty=4)
+#lines(cutoff, rep(baseline_test[["Sensitivity"]], 9), col="red", lty=4)
+
+legend("bottomright", legend=c("Accuracy", "Specificity","Sensitivity"),
+       col=c("black", "blue", "red"), lty=1, cex=0.8,
+       box.lty=2, box.lwd=2, box.col="grey")
+
+Accuracy <- train_predicts$Accuracy
+Specificity <-  train_predicts$Specificity
+Sensitivity <-  train_predicts$Sensitivity
+plot_ref_train <- data.frame(Accuracy, Specificity, Sensitivity)
+
+Accuracy <- test_predicts$Accuracy
+Specificity <-  test_predicts$Specificity
+Sensitivity <-  test_predicts$Sensitivity
+plot_ref_test <- data.frame(Accuracy, Specificity, Sensitivity)
+
+```
+
+
+```{r}
+#Fitting svm model
+
+classifier = svm(formula = death ~ sex+travel_history_binary+has_covid_symptoms+days_to_firstoccurence,
+                 data = predicted_trainData, 
+                 type = 'C-classification', kernel = 'linear') 
+
+
+```
+
+```{r}
+#Predicting test set
+
+y_pred = predict(classifier, newdata = predicted_testData) 
+```
+
+
+```{r}
+#confusion matrix
+ 
+cm = table(predicted_testData, y_pred) 
+
+```
+
+
+
+
+
+
+
